@@ -22,28 +22,30 @@ from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
 
 
 # -----------------------------------------------------------
-#  FUNCIÓN PARA CARGAR CSV Y DETECTAR DELIMITADOR AUTOMÁTICO
+# FUNCIÓN PARA CARGAR CSV Y DETECTAR DELIMITADOR AUTOMÁTICO
 # -----------------------------------------------------------
 def cargar_csv(uploaded_file):
     contenido = uploaded_file.read().decode('latin-1', errors='ignore')
     uploaded_file.seek(0)
 
     try:
+        # Intentar detectar el delimitador
         dialect = csv.Sniffer().sniff(contenido.splitlines()[0])
         sep = dialect.delimiter
     except:
         sep = ','  # Si no detecta, usamos coma por defecto
 
+    # Leer el archivo con el delimitador detectado
     df = pd.read_csv(uploaded_file, sep=sep, engine="python")
     df.columns = df.columns.str.strip()
 
-    # Convertir todas las columnas posibles a numéricas
+    # Convertir todas las columnas posibles a numéricas (manejo de comas/espacios)
     for col in df.columns:
         df[col] = (
             df[col]
             .astype(str)
-            .str.replace(",", "", regex=False)
-            .str.strip()
+            .str.replace(",", "", regex=False) # Quita comas
+            .str.strip() # Quita espacios
         )
         df[col] = pd.to_numeric(df[col], errors='ignore')
 
@@ -105,9 +107,19 @@ if selected_target in selected_features:
     st.error("❌ La variable Y no puede estar incluida en X.")
     st.stop()
 
-X = df[selected_features].select_dtypes(include=np.number).values
-y = df[selected_target].values
+# Filtrar y preparar datos
+# Asegurarse de que las columnas X sean numéricas antes de convertirlas a valores (np.number)
+numeric_df = df[selected_features].select_dtypes(include=np.number)
 
+# Verificar si hay variables X numéricas seleccionadas
+if numeric_df.empty:
+     st.error("❌ No se encontraron columnas numéricas válidas para las Variables Independientes (X).")
+     st.stop()
+    
+X = numeric_df.values
+y = df[selected_target].values # La Y se toma directamente de la columna seleccionada
+
+# Control de la cantidad de datos
 if X.shape[0] < 5:
     st.error("⚠ Se requieren al menos 5 observaciones para entrenar un modelo.")
     st.stop()
@@ -128,6 +140,7 @@ with st.sidebar:
 
     model_name = st.selectbox("Modelo:", list(models.keys()))
 
+    # Parámetros específicos para Random Forest
     if model_name == "Random Forest":
         n_estimators = st.slider("N° de árboles:", 10, 300, 100)
         max_depth = st.slider("Profundidad máxima:", 2, 30, 10)
@@ -136,33 +149,58 @@ with st.sidebar:
 if st.sidebar.button("✅ Entrenar Modelo"):
     model_class = models[model_name]
 
+    # Inicialización del modelo con o sin hiperparámetros
     if model_name == "Random Forest":
         model = model_class(n_estimators=n_estimators, max_depth=max_depth, random_state=42)
     else:
         model = model_class()
 
+    # Entrenamiento
     model.fit(X_train, y_train)
 
+    # Predicciones
     y_train_pred = model.predict(X_train)
     y_test_pred = model.predict(X_test)
 
+    # Cálculo y presentación de Métricas
+    st.header("📊 Resultados del Modelo")
     metrics = pd.DataFrame([
         calculate_metrics(y_train, y_train_pred, "Entrenamiento"),
         calculate_metrics(y_test, y_test_pred, "Validación"),
     ]).set_index("Conjunto")
-
-    st.header("📊 Resultados del Modelo")
     st.table(metrics)
 
-    # Gráfico Real vs Predicho
-    st.header("📈 Gráfico: Real vs Predicho")
-    fig, ax = plt.subplots(figsize=(6, 6))
-    ax.scatter(y_test, y_test_pred, alpha=0.6)
-    min_val, max_val = min(y_test.min(), y_test_pred.min()), max(y_test.max(), y_test_pred.max())
-    ax.plot([min_val, max_val], [min_val, max_val], '--', color='red')
-    ax.set_xlabel("Real")
-    ax.set_ylabel("Predicho")
-    ax.set_title("Validación")
-    st.pyplot(fig)
+    # ---------------------------------------------
+    # Gráficos Real vs Predicho (Entrenamiento y Validación)
+    # ---------------------------------------------
+    st.header("📈 Gráficos: Real vs Predicho")
 
+    # Determinar el rango común para los ejes
+    min_val = min(y_train.min(), y_test.min(), y_train_pred.min(), y_test_pred.min())
+    max_val = max(y_train.max(), y_test.max(), y_train_pred.max(), y_test_pred.max())
+
+    # Crear dos columnas para mostrar las dos gráficas lado a lado
+    col1, col2 = st.columns(2)
+
+    with col1:
+        # Gráfico de Entrenamiento
+        fig_train, ax_train = plt.subplots(figsize=(6, 6))
+        ax_train.scatter(y_train, y_train_pred, alpha=0.6, color='blue')
+        ax_train.plot([min_val, max_val], [min_val, max_val], '--', color='red') # Línea 1:1
+        ax_train.set_xlabel(f"Real ({selected_target})")
+        ax_train.set_ylabel(f"Predicho ({selected_target})")
+        ax_train.set_title("Conjunto de Entrenamiento")
+        ax_train.grid(True, linestyle='--', alpha=0.5)
+        st.pyplot(fig_train)
+
+    with col2:
+        # Gráfico de Validación (Test)
+        fig_test, ax_test = plt.subplots(figsize=(6, 6))
+        ax_test.scatter(y_test, y_test_pred, alpha=0.6, color='green')
+        ax_test.plot([min_val, max_val], [min_val, max_val], '--', color='red') # Línea 1:1
+        ax_test.set_xlabel(f"Real ({selected_target})")
+        ax_test.set_ylabel(f"Predicho ({selected_target})")
+        ax_test.set_title("Conjunto de Validación")
+        ax_test.grid(True, linestyle='--', alpha=0.5)
+        st.pyplot(fig_test)
 

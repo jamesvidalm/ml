@@ -9,9 +9,10 @@ Original file is located at
 import streamlit as st
 import pandas as pd
 import numpy as np
+import csv
 import matplotlib.pyplot as plt
 
-# Scikit-learn
+# Scikit-learn (Modelos de Regresión)
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LinearRegression
 from sklearn.tree import DecisionTreeRegressor
@@ -19,135 +20,80 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.svm import SVR
 from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
 
-# ===================== FUNCIONES ======================
 
+# -----------------------------------------------------------
+#  FUNCIÓN PARA CARGAR CSV Y DETECTAR DELIMITADOR AUTOMÁTICO
+# -----------------------------------------------------------
+def cargar_csv(uploaded_file):
+    contenido = uploaded_file.read().decode('latin-1', errors='ignore')
+    uploaded_file.seek(0)
+
+    try:
+        dialect = csv.Sniffer().sniff(contenido.splitlines()[0])
+        sep = dialect.delimiter
+    except:
+        sep = ','  # Si no detecta, usamos coma por defecto
+
+    df = pd.read_csv(uploaded_file, sep=sep, engine="python")
+    df.columns = df.columns.str.strip()
+
+    # Convertir todas las columnas posibles a numéricas
+    for col in df.columns:
+        df[col] = (
+            df[col]
+            .astype(str)
+            .str.replace(",", "", regex=False)
+            .str.strip()
+        )
+        df[col] = pd.to_numeric(df[col], errors='ignore')
+
+    return df
+
+
+# -----------------------------------------------------------
+# MÉTRICAS
+# -----------------------------------------------------------
 def calculate_metrics(y_true, y_pred, subset_name):
     return {
-        'Subconjunto': subset_name,
+        'Conjunto': subset_name,
         'R2': r2_score(y_true, y_pred),
         'MAE': mean_absolute_error(y_true, y_pred),
         'RMSE': np.sqrt(mean_squared_error(y_true, y_pred)),
         'Bias': np.mean(y_pred - y_true)
     }
 
-def plot_scatter(y_true, y_pred, title):
-    fig, ax = plt.subplots(figsize=(6, 6))
-    ax.scatter(y_true, y_pred, alpha=0.6)
-    min_val = min(min(y_true), min(y_pred))
-    max_val = max(max(y_true), max(y_pred))
-    ax.plot([min_val, max_val], [min_val, max_val], linestyle='--', color='red')
-    ax.set_title(title)
-    ax.set_xlabel("Valor Real")
-    ax.set_ylabel("Valor Predicho")
-    ax.grid(True)
-    return fig
 
-# ==================== STREAMLIT UI ====================
+# -----------------------------------------------------------
+# INTERFAZ STREAMLIT
+# -----------------------------------------------------------
 
-st.set_page_config(page_title="Regresión Hidrológica ML", layout="wide")
+st.set_page_config(page_title="Aplicación Interactiva de Modelos de Regresión Hidrológica", layout="wide")
+
 st.title("🌊 Aplicación Interactiva de Modelos de Regresión Hidrológica")
-st.write("---")
+st.markdown("---")
 
-# =========== CARGA DE ARCHIVO ===========
 with st.sidebar:
-    st.header("1. Cargar Datos")
-    uploaded_file = st.file_uploader("Sube tu archivo CSV", type=["csv"])
+    st.header("1. Cargar Datos CSV")
+    uploaded_file = st.file_uploader("Seleccione archivo CSV", type=['csv'])
 
-if uploaded_file is None:
-    st.info("📌 Sube un archivo CSV para iniciar.")
-    st.stop()
-
-# Intentar leer con formatos comunes
-formats = [( ',', '.' ), (';', ','), (',', ','), (';', '.')]
 df = None
+if uploaded_file:
+    df = cargar_csv(uploaded_file)
 
-for sep, dec in formats:
-    uploaded_file.seek(0)
-    try:
-        df_temp = pd.read_csv(uploaded_file, sep=sep, decimal=dec)
-        if df_temp.shape[1] > 1:
-            df = df_temp.copy()
-            break
-    except:
-        pass
+    if df.shape[0] == 0:
+        st.error("⚠ El archivo se cargó pero **no contiene filas válidas**. Revisa el delimitador o el formato.")
+        st.stop()
+    else:
+        st.success(f"✅ Archivo cargado correctamente: {df.shape[0]} filas, {df.shape[1]} columnas.")
+        st.dataframe(df.head())
+
 
 if df is None:
-    st.error("No se pudo leer el archivo. Verifique formato.")
+    st.info("Por favor cargue un archivo CSV para continuar.")
     st.stop()
 
-# Limpieza de columnas
-df.columns = df.columns.str.strip()
-for col in df.columns:
-    s = df[col].astype(str).str.replace(",", "", regex=False)
-    df[col] = pd.to_numeric(s, errors="coerce")
 
-df = df.dropna()
-st.success(f"✅ Archivo cargado correctamente: {df.shape[0]} filas, {df.shape[1]} columnas.")
-st.dataframe(df.head())
-
-# =========== SELECCIÓN DE VARIABLES ===========
+# Selección de variables
 with st.sidebar:
     st.header("2. Selección de Variables")
-    columnas = df.columns.tolist()
-    X_cols = st.multiselect("Variables Predictoras (X)", columnas, default=columnas[:-1])
-    y_col = st.selectbox("Variable a predecir (Y)", columnas, index=len(columnas)-1)
-
-if not X_cols or y_col in X_cols:
-    st.error("Seleccione variables X válidas y una Y distinta.")
-    st.stop()
-
-X = df[X_cols].values
-y = df[y_col].values
-
-# =========== SELECCIÓN DE MODELO ===========
-with st.sidebar:
-    st.header("3. Modelo de Regresión")
-    option = st.selectbox("Modelo:", [
-        "Regresión Lineal",
-        "Árbol de Decisión",
-        "Random Forest",
-        "SVR"
-    ])
-
-    if option == "Random Forest":
-        n_estimators = st.slider("Nº de árboles:", 10, 300, 100, 10)
-        max_depth = st.slider("Profundidad máxima:", 2, 50, 10)
-    st.write("---")
-
-if st.sidebar.button("🚀 Entrenar Modelo"):
-
-    if option == "Regresión Lineal":
-        model = LinearRegression()
-
-    elif option == "Árbol de Decisión":
-        model = DecisionTreeRegressor(random_state=42)
-
-    elif option == "Random Forest":
-        model = RandomForestRegressor(n_estimators=n_estimators, max_depth=max_depth, random_state=42)
-
-    else:
-        model = SVR()
-
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-
-    model.fit(X_train, y_train)
-
-    st.success(f"Modelo '{option}' entrenado correctamente ✅")
-
-    y_train_pred = model.predict(X_train)
-    y_test_pred = model.predict(X_test)
-
-    metrics_df = pd.DataFrame([
-        calculate_metrics(y_train, y_train_pred, "Entrenamiento"),
-        calculate_metrics(y_test, y_test_pred, "Validación")
-    ]).set_index("Subconjunto")
-
-    st.subheader("📊 Métricas del Modelo")
-    st.table(metrics_df.style.format("{:.4f}"))
-
-    st.subheader("📈 Gráficos de Predicción")
-    col1, col2 = st.columns(2)
-    col1.pyplot(plot_scatter(y_train, y_train_pred, "Entrenamiento"))
-    col2.pyplot(plot_scatter(y_test, y_test_pred, "Validación"))
-
-
+    column_names = df.columns.t_

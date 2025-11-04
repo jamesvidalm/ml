@@ -55,30 +55,57 @@ with st.sidebar:
 df = None
 if uploaded_file is not None:
     try:
-        df = pd.read_csv(uploaded_file)
-        # Convertir a numérico, manejando errores (coerción) y eliminando filas con NaN
-        for col in df.columns:
-            # Intentar convertir las columnas a tipos numéricos (float)
-            df[col] = pd.to_numeric(df[col], errors='coerce')
+        # 1. Intentar leer el CSV con delimitador de coma (default)
+        uploaded_file.seek(0) # Volver al inicio del archivo
+        df = pd.read_csv(uploaded_file, sep=',')
+        st.success("CSV cargado con delimitador de coma (',').")
+        
+    except pd.errors.ParserError:
+        try:
+            # 2. Si falla, intentar leer con delimitador de punto y coma
+            uploaded_file.seek(0) # Volver al inicio del archivo
+            df = pd.read_csv(uploaded_file, sep=';')
+            st.success("CSV cargado con delimitador de punto y coma (';').")
+        except Exception:
+            # 3. Si ambos fallan, mostrar error
+            st.error("Error: No se pudo leer el archivo. Intento con delimitador ',' y ';'.")
+            df = None
+            st.stop()
+        
+    if df is not None:
+        try:
+            # Convertir a numérico y manejar valores no válidos
+            for col in df.columns:
+                # Intentar convertir las columnas a tipos numéricos (float)
+                df[col] = pd.to_numeric(df[col], errors='coerce') 
+            
+            # Eliminar filas con cualquier valor no numérico restante (NaN)
+            original_rows = df.shape[0]
+            df = df.dropna()
+            
+            if df.shape[0] == 0:
+                st.error("El archivo no contiene filas de datos numéricos válidos después de la limpieza.")
+                df = None
+                st.stop()
+                
+            if df.shape[0] < original_rows:
+                 st.warning(f"Se eliminaron {original_rows - df.shape[0]} filas con datos no numéricos.")
 
-        # Eliminar filas con cualquier valor no numérico restante (NaN)
-        df = df.dropna()
+            st.success(f"Datos cargados y limpiados: {df.shape[0]} filas, {df.shape[1]} columnas.")
 
-        st.success(f"Datos cargados correctamente: {df.shape[0]} filas, {df.shape[1]} columnas.")
-
-    except Exception as e:
-        st.error(f"Error al cargar o procesar el archivo CSV. Asegúrese de que el formato es correcto y los datos son numéricos. Error: {e}")
-        df = None
+        except Exception as e:
+            st.error(f"Error al procesar los datos numéricos. Asegúrese de que todas las columnas seleccionadas contienen solo números. Error: {e}")
+            df = None
 
 # Solo continuar si los datos se han cargado correctamente
 if df is not None and not df.empty:
-
+    
     # Obtener nombres de columnas
     column_names = df.columns.tolist()
 
     # --- 2. Selección de Variables X (Features) y Y (Target) ---
     st.sidebar.header("2. Selección de Variables")
-
+    
     # Selección de variables X (múltiple)
     selected_features = st.sidebar.multiselect(
         "Seleccionar Variables Independientes (X):",
@@ -97,22 +124,22 @@ if df is not None and not df.empty:
     if not selected_features or selected_target is None:
         st.warning("Por favor, selecciona al menos una variable X y una variable Y.")
         st.stop()
-
+        
     if selected_target in selected_features:
         st.error("La variable Y no puede estar en el conjunto de variables X.")
         st.stop()
 
     # --- 3. División de Datos y Preprocesamiento ---
-
+    
     # Separación de X y Y
     X = df[selected_features].values
     y = df[selected_target].values
-
+    
     # División en entrenamiento y validación (80/20)
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.2, random_state=42
     )
-
+    
     st.sidebar.markdown("---")
 
     # --- 4. Selección del Modelo ---
@@ -124,12 +151,12 @@ if df is not None and not df.empty:
         "Random Forest (Regresor)": RandomForestRegressor,
         "Máquinas de Soporte Vectorial (SVR)": SVR
     }
-
+    
     model_name = st.sidebar.selectbox(
         "Seleccionar Modelo de Regresión:",
         list(model_options.keys())
     )
-
+    
     # --- Hiperparámetros (Opcional, para demostrar interactividad) ---
     # Solo mostrar si se selecciona un modelo con hiperparámetros relevantes
     if model_name == "Random Forest (Regresor)":
@@ -142,19 +169,26 @@ if df is not None and not df.empty:
 
     # Botón de Entrenamiento
     if st.sidebar.button("4. ENTRENAR MODELO"):
-
+        
         # --- 5. Entrenamiento del Modelo ---
-
+        
         try:
             st.info(f"Entrenando el modelo: **{model_name}**...")
-
+            
             # Inicializar el modelo seleccionado
             model_class = model_options[model_name]
-
+            
             if model_name == "Random Forest (Regresor)":
                  model = model_class(n_estimators=n_estimators, max_depth=max_depth, random_state=42)
             else:
-                 model = model_class()
+                 # SVR necesita que y sea de forma (n_samples, )
+                 if model_name == "Máquinas de Soporte Vectorial (SVR)":
+                     model = model_class()
+                     # Escalar características (necesario para SVR, aunque no se haga en otros modelos aquí)
+                     # Para simplificar, asumimos que los datos ya están en una escala similar por la limpieza inicial.
+                 else:
+                     model = model_class()
+
 
             # Entrenar el modelo
             model.fit(X_train, y_train)
@@ -170,13 +204,13 @@ if df is not None and not df.empty:
             # Calcular métricas para Entrenamiento y Validación
             metrics_train = calculate_metrics(y_train, y_train_pred, "Entrenamiento")
             metrics_test = calculate_metrics(y_test, y_test_pred, "Validación")
-
+            
             # Crear un DataFrame para mostrar las métricas de forma tabular
             metrics_df = pd.DataFrame([metrics_train, metrics_test]).set_index('Subconjunto')
             st.table(metrics_df.style.format({
-                'R2': '{:.4f}',
-                'MAE': '{:.4f}',
-                'RMSE': '{:.4f}',
+                'R2': '{:.4f}', 
+                'MAE': '{:.4f}', 
+                'RMSE': '{:.4f}', 
                 'Bias': '{:.4f}'
             }))
 
@@ -188,11 +222,11 @@ if df is not None and not df.empty:
             def plot_scatter(y_true, y_pred, title, ax):
                 """Genera el gráfico de dispersión (Actual vs Predicho)"""
                 ax.scatter(y_true, y_pred, color='#3B82F6', alpha=0.6, label='Predicciones')
-
+                
                 # Línea de predicción perfecta (y=x)
                 min_val = min(y_true.min(), y_pred.min())
                 max_val = max(y_true.max(), y_pred.max())
-                ax.plot([min_val, max_val], [min_val, max_val],
+                ax.plot([min_val, max_val], [min_val, max_val], 
                         color='#EF4444', linestyle='--', linewidth=2, label='Predicción Perfecta')
 
                 ax.set_title(title)
@@ -216,7 +250,7 @@ if df is not None and not df.empty:
                 fig_test, ax_test = plt.subplots(figsize=(6, 6))
                 plot_scatter(y_test, y_test_pred, f"Validación: R2 = {metrics_test['R2']:.4f}", ax_test)
                 st.pyplot(fig_test)
-
+                
             plt.close('all') # Cerrar figuras para evitar problemas de memoria
 
         except Exception as e:
@@ -227,4 +261,3 @@ else:
     st.info("Por favor, carga un archivo CSV en la barra lateral izquierda para comenzar el análisis.")
     st.markdown("---")
     st.markdown("Esta aplicación permite seleccionar variables (X, Y), elegir un modelo de regresión y evaluar su rendimiento mediante métricas y gráficos de dispersión.")
-

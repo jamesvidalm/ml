@@ -57,6 +57,7 @@ if uploaded_file is not None:
     success_message = None
     
     # Lista de combinaciones (separador_columna, separador_decimal) a intentar
+    # Nota: El separador de miles (thousands) se manejará aparte en la limpieza.
     formats = [
         (',', '.'),  # 1. Por defecto (US/UK): Coma (,) separador, Punto (.) decimal
         (';', ','),  # 2. LATAM/Europeo: Punto y coma (;) separador, Coma (,) decimal
@@ -87,13 +88,28 @@ if uploaded_file is not None:
         
     if df is not None:
         try:
-            # Convertir a numérico y manejar valores no válidos
+            # --- Limpieza de datos robusta ---
+
+            # 1. Limpiar espacios extra en nombres de columnas
+            df.columns = df.columns.str.strip()
+
+            # 2. Convertir a numérico y manejar separadores de miles/espacios
             for col in df.columns:
-                # Intentar convertir las columnas a tipos numéricos (float).
-                # Ya que definimos 'decimal' en read_csv, esto debería funcionar.
-                df[col] = pd.to_numeric(df[col], errors='coerce') 
+                
+                # Convertir a cadena y limpiar espacios extra
+                s = df[col].astype(str).str.strip()
+
+                # Intentar limpiar comas (si son separadores de miles) antes de la conversión final
+                # Esto es crucial si el archivo usa un formato como 1,000,000.50
+                if df[col].dtype == 'object' or df[col].dtype == 'string':
+                     # Usamos str.replace para quitar comas de los números
+                     s = s.str.replace(',', '', regex=False)
+
+                # Intentar convertir la serie a tipos numéricos (float).
+                # 'errors='coerce' convertirá cualquier cosa que no sea un número válido a NaN.
+                df[col] = pd.to_numeric(s, errors='coerce') 
             
-            # Eliminar filas con cualquier valor no numérico restante (NaN)
+            # 3. Eliminar filas con cualquier valor no numérico restante (NaN)
             original_rows = df.shape[0]
             df = df.dropna()
             
@@ -275,4 +291,3 @@ else:
     st.info("Por favor, carga un archivo CSV en la barra lateral izquierda para comenzar el análisis.")
     st.markdown("---")
     st.markdown("Esta aplicación permite seleccionar variables (X, Y), elegir un modelo de regresión y evaluar su rendimiento mediante métricas y gráficos de dispersión.")
-

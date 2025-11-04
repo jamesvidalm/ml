@@ -96,4 +96,73 @@ if df is None:
 # Selección de variables
 with st.sidebar:
     st.header("2. Selección de Variables")
-    column_names = df.columns.t_
+    column_names = df.columns.tolist()
+
+    selected_features = st.multiselect("Variables Independientes (X):", column_names, default=column_names[:-1])
+    selected_target = st.selectbox("Variable Dependiente (Y):", column_names, index=len(column_names)-1)
+
+if selected_target in selected_features:
+    st.error("❌ La variable Y no puede estar incluida en X.")
+    st.stop()
+
+X = df[selected_features].select_dtypes(include=np.number).values
+y = df[selected_target].values
+
+if X.shape[0] < 5:
+    st.error("⚠ Se requieren al menos 5 observaciones para entrenar un modelo.")
+    st.stop()
+
+# División en entrenamiento y prueba
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+
+# Selección del modelo
+with st.sidebar:
+    st.header("3. Modelo de Regresión")
+    models = {
+        "Regresión Lineal": LinearRegression,
+        "Árbol de Decisión": DecisionTreeRegressor,
+        "Random Forest": RandomForestRegressor,
+        "Máquinas de Soporte Vectorial (SVR)": SVR,
+    }
+
+    model_name = st.selectbox("Modelo:", list(models.keys()))
+
+    if model_name == "Random Forest":
+        n_estimators = st.slider("N° de árboles:", 10, 300, 100)
+        max_depth = st.slider("Profundidad máxima:", 2, 30, 10)
+
+
+if st.sidebar.button("✅ Entrenar Modelo"):
+    model_class = models[model_name]
+
+    if model_name == "Random Forest":
+        model = model_class(n_estimators=n_estimators, max_depth=max_depth, random_state=42)
+    else:
+        model = model_class()
+
+    model.fit(X_train, y_train)
+
+    y_train_pred = model.predict(X_train)
+    y_test_pred = model.predict(X_test)
+
+    metrics = pd.DataFrame([
+        calculate_metrics(y_train, y_train_pred, "Entrenamiento"),
+        calculate_metrics(y_test, y_test_pred, "Validación"),
+    ]).set_index("Conjunto")
+
+    st.header("📊 Resultados del Modelo")
+    st.table(metrics)
+
+    # Gráfico Real vs Predicho
+    st.header("📈 Gráfico: Real vs Predicho")
+    fig, ax = plt.subplots(figsize=(6, 6))
+    ax.scatter(y_test, y_test_pred, alpha=0.6)
+    min_val, max_val = min(y_test.min(), y_test_pred.min()), max(y_test.max(), y_test_pred.max())
+    ax.plot([min_val, max_val], [min_val, max_val], '--', color='red')
+    ax.set_xlabel("Real")
+    ax.set_ylabel("Predicho")
+    ax.set_title("Validación")
+    st.pyplot(fig)
+
+

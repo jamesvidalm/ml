@@ -71,7 +71,7 @@ def calculate_metrics(y_true, y_pred, subset_name):
 
 st.set_page_config(page_title="Aplicación Interactiva de Modelos de Regresión Hidrológica", layout="wide")
 
-st.title("🌊 Aplicación Interactiva de Modelos de Regresión Hidrológica")
+st.title("🌊 Evaluación de Modelos Predictivos de Regresión")
 st.markdown("---")
 
 with st.sidebar:

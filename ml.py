@@ -69,7 +69,7 @@ def calculate_metrics(y_true, y_pred, subset_name):
 # INTERFAZ STREAMLIT
 # -----------------------------------------------------------
 
-st.set_page_config(page_title="Aplicación Interactiva de Modelos de Regresión Hidrológica", layout="wide")
+st.set_page_config(page_title="Modelos de Machine Learning - Regresión", layout="wide")
 
 st.title("🌊 Evaluación de Modelos Predictivos de Regresión")
 st.markdown("---")
